@@ -163,4 +163,16 @@ router.post('/resend', async (req, res) => {
   }
 });
 
+router.save("/save", async(req,res) => {
+  const {userId, role, content} = req.body;
+
+  if(!userId || !role || !content){
+    return res.status(400).json({message : "All fields are required "});
+  }
+
+  try{
+
+  }catch(e){}
+});
+
 module.exports = router;
