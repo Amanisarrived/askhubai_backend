@@ -5,7 +5,9 @@ const nodemailer = require('nodemailer');
 const router = express.Router();
 const User = require('../model/user');
 
-console.log("✅ User type:", typeof User)
+console.log("✅ User type:", typeof User);
+console.log("✅ User constructor:", User.constructor.name);
+console.log("✅ User.findOne type:", typeof User.findOne);
 
 const pendingUsers = {};
 
@@ -16,6 +18,11 @@ const verificationCode = () => {
 router.post("/register", async (req, res) => {
   const { name, email, password } = req.body;
   try {
+    // Add validation
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
     let user = await User.findOne({ email: email });
     if (user) {
       return res.status(400).json({ message: "User already exists" });
@@ -33,7 +40,7 @@ router.post("/register", async (req, res) => {
       code: verificationCodeValue
     };
 
-    const transporter = nodemailer.createTransport({
+    const transporter = nodemailer.createTransporter({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
@@ -66,15 +73,20 @@ router.post("/register", async (req, res) => {
 router.post('/verify', async (req, res) => {
   const { email, code } = req.body;
 
-  const pending = pendingUsers[email];
-  if (!pending) {
-    return res.status(400).json({ message: 'No pending registration for this email.' });
-  }
-  if (pending.code !== code) {
-    return res.status(400).json({ message: 'Invalid verification code.' });
-  }
-
   try {
+    // Add validation
+    if (!email || !code) {
+      return res.status(400).json({ message: 'Email and code are required.' });
+    }
+
+    const pending = pendingUsers[email];
+    if (!pending) {
+      return res.status(400).json({ message: 'No pending registration for this email.' });
+    }
+    if (pending.code !== code) {
+      return res.status(400).json({ message: 'Invalid verification code.' });
+    }
+
     // Save user to DB
     const user = new User({
       name: pending.name,
@@ -86,7 +98,7 @@ router.post('/verify', async (req, res) => {
     delete pendingUsers[email];
     res.status(200).json({ message: 'Email verified and account created successfully.' });
   } catch (err) {
-    console.error(err);
+    console.error('Verify error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -94,15 +106,26 @@ router.post('/verify', async (req, res) => {
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
+    // Add validation
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required.' });
+    }
+
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: 'Invalid email or password.' });
+    }
+
+    // Check if user is verified
+    if (!user.isVerified) {
+      return res.status(400).json({ message: 'Please verify your email first.' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid email or password.' });
     }
+    
     // Generate JWT token
     const token = jwt.sign({ userId: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1d' });
     res.status(200).json({ token, message: 'Login successful.' });
@@ -112,49 +135,52 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Add this endpoint to your auth.js
-
 router.post('/resend', async (req, res) => {
-  // 1. Get the email from the request body
-  const { email } = req.body;
-
-  // 2. Find the pending registration for this email
-  const pending = pendingUsers[email];
-  if (!pending) {
-    // If not found, tell the user to register first
-    return res.status(400).json({ message: 'No pending registration for this email.' });
-  }
-
-  // 3. Optional: Add a cooldown to prevent spamming (e.g., 2 minutes)
-  if (pending.lastResend && Date.now() - pending.lastResend < 2 * 60 * 1000) {
-    // If user tries to resend too soon, return an error
-    return res.status(429).json({ message: 'Please wait before requesting a new code.' });
-  }
-
-  // 4. Generate a new verification code
-  const newCode = verificationCode();
-  pending.code = newCode; // Update the code in memory
-  pending.lastResend = Date.now(); // Update the last resend time
-
-  // 5. Prepare the email transporter
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
-
-  // 6. Prepare the email options
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: "Resent Verification Code - AskHubAi",
-    text: `Your new verification code is ${newCode}. Please use this code to verify your email address.`
-  };
-
-  // 7. Send the email
   try {
+    // 1. Get the email from the request body
+    const { email } = req.body;
+
+    // Add validation
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required.' });
+    }
+
+    // 2. Find the pending registration for this email
+    const pending = pendingUsers[email];
+    if (!pending) {
+      // If not found, tell the user to register first
+      return res.status(400).json({ message: 'No pending registration for this email.' });
+    }
+
+    // 3. Optional: Add a cooldown to prevent spamming (e.g., 2 minutes)
+    if (pending.lastResend && Date.now() - pending.lastResend < 2 * 60 * 1000) {
+      // If user tries to resend too soon, return an error
+      return res.status(429).json({ message: 'Please wait before requesting a new code.' });
+    }
+
+    // 4. Generate a new verification code
+    const newCode = verificationCode();
+    pending.code = newCode; // Update the code in memory
+    pending.lastResend = Date.now(); // Update the last resend time
+
+    // 5. Prepare the email transporter
+    const transporter = nodemailer.createTransporter({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    // 6. Prepare the email options
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Resent Verification Code - AskHubAi",
+      text: `Your new verification code is ${newCode}. Please use this code to verify your email address.`
+    };
+
+    // 7. Send the email
     await transporter.sendMail(mailOptions);
     // Success response
     res.status(200).json({ message: 'Verification code resent to your email.' });
@@ -164,7 +190,5 @@ router.post('/resend', async (req, res) => {
     return res.status(500).json({ message: 'Failed to resend verification email.' });
   }
 });
-
-
 
 module.exports = router;
