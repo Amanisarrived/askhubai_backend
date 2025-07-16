@@ -4,6 +4,8 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const router = express.Router();
 const User = require('../model/user');
+const Chat = require('../model/chat');
+const verifyToken = require('..//middleware/verifytoken');
 
 console.log("✅ User type:", typeof User);
 console.log("✅ User constructor:", User.constructor.name);
@@ -40,7 +42,7 @@ router.post("/register", async (req, res) => {
       code: verificationCodeValue
     };
 
-    const transporter = nodemailer.createTransporter({
+    const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
@@ -125,7 +127,7 @@ router.post('/login', async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid email or password.' });
     }
-    
+
     // Generate JWT token
     const token = jwt.sign({ userId: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1d' });
     res.status(200).json({ token, message: 'Login successful.' });
@@ -164,7 +166,7 @@ router.post('/resend', async (req, res) => {
     pending.lastResend = Date.now(); // Update the last resend time
 
     // 5. Prepare the email transporter
-    const transporter = nodemailer.createTransporter({
+    const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
@@ -190,5 +192,61 @@ router.post('/resend', async (req, res) => {
     return res.status(500).json({ message: 'Failed to resend verification email.' });
   }
 });
+
+router.post('/save', verifyToken, async (req, res) => {
+  const userId = req.userId;
+  const { conversationId, title, messages } = req.body;
+
+  try {
+    let chat = await Chat.findOne({ userId, conversationId });
+
+    if (chat) {
+      chat.messages.push(...messages);
+      await chat.save();
+      return res.status(200).json({ message: 'Chat updated' });
+    } else {
+      const newChat = new Chat({
+        userId,
+        conversationId,
+        title: title || 'New Chat',
+        messages
+      });
+      await newChat.save();
+      return res.status(201).json({ message: 'Chat created' });
+    }
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error saving chat' });
+  }
+});
+
+// ✅ Get all chats for logged-in user
+router.get('/all', verifyToken, async (req, res) => {
+  const userId = req.userId;
+
+  try {
+    const chats = await Chat.find({ userId }).sort({ updatedAt: -1 });
+    res.status(200).json(chats);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to load chats' });
+  }
+});
+
+// ✅ Delete chat by conversationId
+router.delete('/delete/:conversationId', verifyToken, async (req, res) => {
+  const userId = req.userId;
+  const { conversationId } = req.params;
+
+  try {
+    await Chat.findOneAndDelete({ userId, conversationId });
+    res.status(200).json({ message: 'Chat deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Delete failed' });
+  }
+});
+
+
 
 module.exports = router;
