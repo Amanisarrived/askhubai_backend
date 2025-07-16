@@ -5,6 +5,8 @@ const nodemailer = require('nodemailer');
 const router = express.Router();
 const User = require('../model/user');
 
+console.log("✅ User type:", typeof User)
+
 const pendingUsers = {};
 
 const verificationCode = () => {
