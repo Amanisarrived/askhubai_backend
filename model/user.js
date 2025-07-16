@@ -26,7 +26,5 @@ const userSchema = new mongoose.Schema({
   }
 });
 
-// ✅ Fix: Avoid model overwrite error
-const User = mongoose.models.User || mongoose.model('User', userSchema);
-
-module.exports = User;
+// ✅ Simple direct export
+module.exports = mongoose.model('User', userSchema);
