@@ -172,7 +172,7 @@ router.post('/resend', async (req, res) => {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
       }
-    });
+    });   
 
     // 6. Prepare the email options
     const mailOptions = {
